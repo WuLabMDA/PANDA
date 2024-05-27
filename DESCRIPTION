@@ -1,0 +1,13 @@
+Package: PANDA
+Type: Package
+Title: Pan-omics discriminant analysis
+Version: 0.1.0
+Author: MAminu
+Maintainer: The package maintainer <muhammadaminu47@gmail.com>
+Description: Integrate multi-omics datasets by finding common discriminant latent representations.
+Imports: 
+    geigen
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.2.3
