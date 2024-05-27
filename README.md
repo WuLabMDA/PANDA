@@ -11,7 +11,7 @@ The goal of PANDA is to ...
 You can install the development version of PANDA like so:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+remotes::install_github("muhammadaminu47/PANDA")
 ```
 
 ## Example
