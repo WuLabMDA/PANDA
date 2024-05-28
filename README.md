@@ -18,7 +18,7 @@ remotes::install_github("muhammadaminu47/PANDA")
 
 ## Input data
 
-The input dataset for all the experiments reported in our paper can be found in the `./Data/` folder of this repository. 
+The input dataset for all the experiments reported in our paper can be found in the `./data/` folder of this repository. 
    
 ### Tutorials
 
@@ -26,7 +26,7 @@ The input dataset for all the experiments reported in our paper can be found in 
 2. [PanDA identifies important markers related to breast cancer](https://)
 3. [PanDA application to clinical outcome prediction](https://)
 
-The benchmarking results on the TCGA multi-omics cancer datasets can be obtained by running the corresponding code in the vignettes folder:
+The benchmarking results on the TCGA multi-omics cancer datasets can be obtained by running the corresponding code in the `./code/` folder:
 1. `mainLung.R`
 2. `mainBreast.R`
 3. `mainColon.R`
