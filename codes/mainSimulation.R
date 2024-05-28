@@ -2,8 +2,6 @@
 rm(list = ls(all = TRUE))
 graphics.off()
 
-# setwd("C:/Projects/mixOmics/Data/simulation/MOSIM from scAI")
-
 library(data.table)
 library(purrr)
 library(Seurat)
