@@ -26,7 +26,7 @@ The input dataset for all the experiments reported in our paper can be found in 
 2. [PanDA identifies important markers related to breast cancer](https://)
 3. [PanDA application to clinical outcome prediction](https://)
 
-The benchmarking results on the TCGA multi-omics cancer datasets can be obtained by running the corresponding code in the `./code/` folder.
+The benchmarking results on the simulated, cancer cell line and the TCGA multi-omics datasets can be obtained by running the corresponding code in the `./code/` folder.
 
 ### Example work flow
 An example of the `PanDA` work flow to get started. Here we used the processed TCGA multiomics dataset from the mixOmics package
