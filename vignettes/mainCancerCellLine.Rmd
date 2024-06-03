@@ -74,7 +74,7 @@ data <- list(rna = as.matrix(rna), atac = as.matrix(atac))
 gnd <- as.numeric(as.factor(cellLine.rna@meta.data[["orig.ident"]]))
 numComponents <- 100
 
-PanDAModel <- PanDA(data,gnd,numComponents, 0.005)
+PanDAModel <- PanDA(data,gnd,numComponents,0.005)
 
 PanDARNA <- CreateDimReducObject(
   embeddings = PanDAModel[["PanDAComponents"]][["rnaComponents"]],
@@ -113,56 +113,11 @@ p1 / p2
 ```{r}
 FeaturePlot(object = cellLine.rna, reduction = "PanDAumap", features = c('DC_1','DC_2'), pt.size = 2)&
   scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu"))) # consider DC_1, DC_2, DC_5, DC_8
+```
 
+```{r}
 FeaturePlot(object = cellLine.atac, reduction = "PanDAumap", features = c('DC_1','DC_2'), pt.size = 2)&
   scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
-```
-
-```{r}
-VlnPlot(cellLine.rna, c('DC_1','DC_2'), group.by = "orig.ident", pt.size = 0, cols = cols)
-VlnPlot(cellLine.atac, c('DC_1','DC_2'), group.by = "orig.ident", pt.size = 0, cols = cols)
-```
-
-```{r}
-# check association between 
-refData <- PanDAModel[["PanDAComponents"]][["rnaComponents"]]
-pcor <- data.frame(matrix(ncol = 5, nrow = numComponents))
-colnames(pcor) <- c('features', 'pvalue', 'corcoef', 'scores', 'type of association')
-pcor$features <- colnames(refData)
-
-for (i in 1:numComponents) {
-  cor <- cor.test(refData[,i] ,gnd)
-  pcor[i,2] <- cor[["p.value"]]
-  pcor[i,3] <- cor[["estimate"]][["cor"]]
-  pcor[i,4] <- -log(pcor[i,2])
-  if(pcor[i,3] > 0){
-    pcor[i,5] <- "positive"
-  }
-  else{
-    pcor[i,5] <- "negative"
-  }
-}
-
-pcor <- pcor[order(-pcor$scores),]
-pcor$scores <- pcor$scores/sum(pcor$scores)
-rpcor <- pcor[c(1:20),]
-ggdotchart(rpcor, x = "features", y = "scores",
-           color = "type of association",
-           palette = c("#FF0000", "#1B9E77"),
-           sorting = "descending",
-           add = "segments",
-           add.params = list(color = "darkgray", size = 4),
-           rotate = TRUE,
-           dot.size = 6,
-           #label = round(fscImaging$Scores,1),
-           #font.label = list(color = "white", size = 0,
-           #                  vjust = 0.4),
-           ggtheme = theme_pubr()
-)+
-  font("x.text", size = 18, color = "black", face = "bold.italic")+
-  font("y.text", size = 18, color = "black", face = "bold.italic")+
-  font("xy", size = 18, color = "black", face = "bold.italic")
-
 ```
 
 ```{r}
@@ -279,33 +234,7 @@ pheatmap(nredRNA, cluster_rows = T, cluster_cols = T,
 
 ```{r}
 rnaclustres <- clustComp(annot_rna$Cluster, factor(annot_rna$Groundtruth))
-```
-
-```{r}
-# # check correlation among extracted components of different Omics DIABLO
-doicscombComponents <- cbind(PanDAModel[["PanDAComponents"]][["rnaComponents"]][,1],
-                              PanDAModel[["PanDAComponents"]][["rnaComponents"]][,1])
-names <- c("rna","atac")
-colnames (doicscombComponents) <- names
-
-# Correlation panel
-panel.cor <- function(x, y){
-  usr <- par("usr"); on.exit(par(usr))
-  par(usr = c(0, 1, 0, 1))
-  r <- round(cor(x, y), digits=2)
-  txt <- paste0("R = ", r)
-  cex.cor <- 0.8/strwidth(txt)
-  text(0.5, 0.5, txt, cex = cex.cor * r)
-}
-# Customize upper panel
-upper.panel<-function(x, y){
-  points(x,y, pch = 19, col = cols)
-}
-
-# Create the plots
-pairs(doicscombComponents,
-      lower.panel = panel.cor,
-      upper.panel = upper.panel)
+cat(" ARI =", rnaclustres[["ARI"]],"\n", "NMI =", rnaclustres[["NMI"]])
 ```
 
 
