@@ -6,6 +6,7 @@ output:
   html_document:
     toc: true
     toc_depth: 2
+    toc_float: yes
 package: PANDA
 vignette: |
   %\VignetteIndexEntry{Pan-omics Discriminant Analysis with PanDA}
