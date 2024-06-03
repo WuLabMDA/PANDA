@@ -1,0 +1,320 @@
+---
+title: "PanDA application to cancer cell line data"
+author: "Muhammad Aminu"
+date: "`r Sys.Date()`"
+output: html_document
+package: PANDA
+vignette: |
+  %\VignetteIndexEntry{Pan-omics Discriminant Analysis with PanDA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = FALSE, 
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+library(Seurat)
+library(Signac)
+library(ggplot2)
+library(cowplot)
+library(caret)
+library(ggpubr)
+library(corrplot)
+library(MASS)
+library(Rtsne)
+library(umap)
+library(pheatmap)
+library(RGCCA)
+library(ConsensusClusterPlus)
+library(mclust)
+library(aricode)
+library(PANDA)
+```
+
+
+# Introduction
+
+
+# Load data
+
+For this demo we will use a synthetic dataset simulating a scRNA-seq and scATAC-seq experimentts, generated using [MOSim](https://https://github.com/ConesaLab/MOSim).
+
+```{r}
+data("data_CancerCellLine")
+
+rna <- data_CancerCellLine[["rna"]]
+atac <- data_CancerCellLine[["atac"]]
+metaData <- data_CancerCellLine[["metadata"]]
+```
+
+# Create SingleCellExperiment object
+```{r, message=FALSE, warning=FALSE}
+cellLine.rna <- CreateSeuratObject(counts = rna,
+                                project = "cellLine",
+                                assay = "RNA",
+                                meta.data = metaData)
+
+cellLine.atac <- CreateSeuratObject(counts = atac,
+                                 project = "cellLine",
+                                 assay = "ATAC",
+                                 meta.data = metaData)
+```
+
+
+
+
+```{r}
+data <- list(rna = as.matrix(rna), atac = as.matrix(atac))
+gnd <- as.numeric(as.factor(cellLine.rna@meta.data[["orig.ident"]]))
+numComponents <- 100
+
+PanDAModel <- PanDA(data,gnd,numComponents,0.02)
+
+PanDARNA <- CreateDimReducObject(
+  embeddings = PanDAModel[["PanDAComponents"]][["rnaComponents"]],
+  loadings = PanDAModel[["projMatrices"]][["Wrna"]],
+  stdev = numeric(),
+  key = "DC_",
+  assay = "RNA"
+)
+
+cellLine.rna@reductions[["PanDA"]] <- PanDARNA
+
+cellLine.rna <- RunUMAP(cellLine.rna, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
+cellLine.rna <- RunTSNE(cellLine.rna, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAtsne", reduction.key = "PandaTSNE_")
+
+PanDAATAC <- CreateDimReducObject(
+  embeddings = PanDAModel[["PanDAComponents"]][["atacComponents"]],
+  loadings = PanDAModel[["projMatrices"]][["Watac"]],
+  stdev = numeric(),
+  key = "DC_",
+  assay = "ATAC"
+)
+
+cellLine.atac@reductions[["PanDA"]] <- PanDAATAC
+
+cellLine.atac <- RunUMAP(cellLine.atac, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
+cellLine.atac <- RunTSNE(cellLine.atac, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAtsne", reduction.key = "PandaTSNE_")
+```
+
+```{r}
+cols <- c("#E58601","#4E9F50","#027B8E")
+p1 <- DimPlot(cellLine.rna, reduction = "PanDAumap", group.by = "orig.ident", label = FALSE, pt.size = 2, cols = cols) + NoLegend() + ggtitle("RNA")
+p2 <- DimPlot(cellLine.atac, reduction = "PanDAumap", group.by = "orig.ident", label = FALSE, pt.size = 2, cols = cols) + ggtitle("ATAC")
+p1 / p2
+```
+
+```{r}
+FeaturePlot(object = cellLine.rna, reduction = "PanDAumap", features = c('DC_1','DC_2'), pt.size = 2)&
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu"))) # consider DC_1, DC_2, DC_5, DC_8
+
+FeaturePlot(object = cellLine.atac, reduction = "PanDAumap", features = c('DC_1','DC_2'), pt.size = 2)&
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+```
+
+```{r}
+VlnPlot(cellLine.rna, c('DC_1','DC_2'), group.by = "orig.ident", pt.size = 0, cols = cols)
+VlnPlot(cellLine.atac, c('DC_1','DC_2'), group.by = "orig.ident", pt.size = 0, cols = cols)
+```
+
+```{r}
+# check association between 
+refData <- PanDAModel[["PanDAComponents"]][["rnaComponents"]]
+pcor <- data.frame(matrix(ncol = 5, nrow = numComponents))
+colnames(pcor) <- c('features', 'pvalue', 'corcoef', 'scores', 'type of association')
+pcor$features <- colnames(refData)
+
+for (i in 1:numComponents) {
+  cor <- cor.test(refData[,i] ,gnd)
+  pcor[i,2] <- cor[["p.value"]]
+  pcor[i,3] <- cor[["estimate"]][["cor"]]
+  pcor[i,4] <- -log(pcor[i,2])
+  if(pcor[i,3] > 0){
+    pcor[i,5] <- "positive"
+  }
+  else{
+    pcor[i,5] <- "negative"
+  }
+}
+
+pcor <- pcor[order(-pcor$scores),]
+pcor$scores <- pcor$scores/sum(pcor$scores)
+rpcor <- pcor[c(1:20),]
+ggdotchart(rpcor, x = "features", y = "scores",
+           color = "type of association",
+           palette = c("#FF0000", "#1B9E77"),
+           sorting = "descending",
+           add = "segments",
+           add.params = list(color = "darkgray", size = 4),
+           rotate = TRUE,
+           dot.size = 6,
+           #label = round(fscImaging$Scores,1),
+           #font.label = list(color = "white", size = 0,
+           #                  vjust = 0.4),
+           ggtheme = theme_pubr()
+)+
+  font("x.text", size = 18, color = "black", face = "bold.italic")+
+  font("y.text", size = 18, color = "black", face = "bold.italic")+
+  font("xy", size = 18, color = "black", face = "bold.italic")
+
+```
+
+```{r}
+# Check correlation among extracted components
+M = cor(refData[,c(1:10)])
+
+# corrplot(M)
+corrplot.mixed(M)
+```
+
+```{r}
+# Plot gene loading for PanDA components (RNA)
+refComponents <- c("DC_1","DC_2")
+nfea <- 30
+loadingsRNA <- as.data.frame(cellLine.rna@reductions[["PanDA"]]@feature.loadings[,refComponents])
+rownames(loadingsRNA) <- colnames(reducedRNA)
+tempfeaRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(tempfeaRNA) <- refComponents
+
+genes <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(genes) <- refComponents
+
+signRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(signRNA) <- refComponents
+
+for (i in 1:length(refComponents)) {
+  ind <- sort(abs(loadingsRNA[,i]), decreasing = TRUE, index.return=TRUE)$ix
+  tempfeaRNA[,i] <- loadingsRNA[ind[c(1:nfea)],i]
+  genes[,i] <- rownames(loadingsRNA)[ind[c(1:nfea)]]
+  for (j in 1:nrow(tempfeaRNA)){
+    if(tempfeaRNA[j,i] > 0){
+      signRNA[j,i] <- "+"
+    }
+    else{
+      signRNA[j,i] <- "-"
+    }
+  }
+}
+
+# Plot the genes with top weights on component 1
+ffeaRNA <- data.frame(matrix(ncol = 3, nrow = nfea))
+component <- "DC_1"
+ffeaRNA[,1] <- genes[,component]
+ffeaRNA[,2] <- abs(tempfeaRNA[,component])
+ffeaRNA[,3] <- signRNA[,component]
+colnames(ffeaRNA) <- c("genes","weights","sign")
+
+geneIDS <- ensembldb::select(EnsDb.Hsapiens.v79, keys= ffeaRNA[,1], keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+ffeaRNA$renamedGenes <- geneIDS$SYMBOL
+
+ggdotchart(ffeaRNA, x = "renamedGenes", y = "weights",
+           palette = cols,
+           sorting = "descending",
+           add = "segments",
+           add.params = list(color = "#999999", size = 4),
+           rotate = TRUE,
+           dot.size = 8,
+           label = ffeaRNA$sign,
+           font.label = list(face = "bold", color = "white", size = 18, 
+                             vjust = 0.4), 
+           ggtheme = theme_pubr()
+)+
+  font("x.text", size = 18, color = "black", face = "bold.italic")+
+  font("y.text", size = 18, color = "black", face = "bold.italic")+
+  font("xy", size = 18, color = "black", face = "bold.italic")
+
+```
+
+```{r}
+# plot heatmap with the top genes on component 1
+nredRNA <- reducedRNA[,genes[,component]]
+namesredRNA <- colnames(nredRNA)
+
+geneID2 <- ensembldb::select(EnsDb.Hsapiens.v79, keys= namesredRNA, keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+colnames(nredRNA) <- geneID2$SYMBOL
+
+# out <- pheatmap(scale(nredRNA), cluster_rows=T, show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+outRNA <- pheatmap(nredRNA, cluster_rows=T, scale="row", show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+rnalabel <- cutree(outRNA$tree_row, k=3)[outRNA$tree_row[["order"]]]
+annot_rna <- data.frame(row.names = names(rnalabel),
+                        Clusters = as.factor(rnalabel),
+                        Groundtruth = as.factor(metaData[outRNA[["tree_row"]][["order"]],"celltype"]))
+
+my_colour = list(
+  Groundtruth = c(HCT = "#E58601", Hela = "#4E9F50", K562 = "#027B8E"),
+  clustering = c("1" = "#CD0BBC", "2" = "#F5C710", "3" = "#28E2E5"))
+
+# use this function to make row or column names bold
+# parameters:
+#   mat: the matrix passed to pheatmap
+#   rc_fun: either rownames or colnames
+#   rc_names: vector of names that should appear in boldface
+make_bold_names <- function(mat, rc_fun, rc_names) {
+  bold_names <- rc_fun(mat)
+  ids <- rc_names %>% match(rc_fun(mat))
+  ids %>%
+    walk(
+      function(i)
+        bold_names[i] <<-
+        bquote(bold(.(rc_fun(mat)[i]))) %>%
+        as.expression()
+    )
+  bold_names
+}
+
+pheatmap(nredRNA, cluster_rows = T, cluster_cols = T,
+         show_rownames = F, 
+         scale = "row", show_colnames = T, 
+         cutree_rows = 3, annotation_row = annot_rna,
+         annotation_colors = my_colour,
+         labels_col = make_bold_names(nredRNA, colnames, colnames(nredRNA)))
+
+```
+
+```{r}
+rnaclustres <- clustComp(annot_rna$Cluster, factor(annot_rna$Groundtruth))
+```
+
+```{r}
+# # check correlation among extracted components of different Omics DIABLO
+doicscombComponents <- cbind(PanDAModel[["PanDAComponents"]][["rnaComponents"]][,1],
+                              PanDAModel[["PanDAComponents"]][["rnaComponents"]][,1])
+names <- c("rna","atac")
+colnames (doicscombComponents) <- names
+
+# Correlation panel
+panel.cor <- function(x, y){
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r <- round(cor(x, y), digits=2)
+  txt <- paste0("R = ", r)
+  cex.cor <- 0.8/strwidth(txt)
+  text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+# Customize upper panel
+upper.panel<-function(x, y){
+  points(x,y, pch = 19, col = cols)
+}
+
+# Create the plots
+pairs(doicscombComponents,
+      lower.panel = panel.cor,
+      upper.panel = upper.panel)
+```
+
+
+
+<details>
+  <summary>**Session Info**</summary>
+  
+```{r}
+sessionInfo()
+```
+
+</details>

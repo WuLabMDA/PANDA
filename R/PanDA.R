@@ -58,7 +58,6 @@ PanDA <- function (data,labels,Dim, meu){
     meu <- 0.2
     message("regularization parameter not provided, default = 0.2 will be used")
   }
-  meu = 0.2
 
   # Calculate the number of samples in each class from all views
   labels <- as.numeric(labels)
