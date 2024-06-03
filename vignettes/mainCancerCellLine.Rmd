@@ -69,12 +69,12 @@ cellLine.atac <- CreateSeuratObject(counts = atac,
 
 
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 data <- list(rna = as.matrix(rna), atac = as.matrix(atac))
 gnd <- as.numeric(as.factor(cellLine.rna@meta.data[["orig.ident"]]))
 numComponents <- 100
 
-PanDAModel <- PanDA(data,gnd,numComponents,0.02)
+PanDAModel <- PanDA(data,gnd,numComponents, 0.005)
 
 PanDARNA <- CreateDimReducObject(
   embeddings = PanDAModel[["PanDAComponents"]][["rnaComponents"]],

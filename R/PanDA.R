@@ -52,7 +52,7 @@ PanDA <- function (data,labels,Dim, meu){
   }
 
   # user specified parameters
-  lambda = 0.001 # regularizer to handle singularity problem of the total scatter matrix
+  lambda = 1e-1 # regularizer to handle singularity problem of the total scatter matrix
 
   if (missing(meu)){
     meu <- 0.2
