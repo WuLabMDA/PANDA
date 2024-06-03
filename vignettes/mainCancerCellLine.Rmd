@@ -2,7 +2,10 @@
 title: "PanDA application to cancer cell line data"
 author: "Muhammad Aminu"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
 package: PANDA
 vignette: |
   %\VignetteIndexEntry{Pan-omics Discriminant Analysis with PanDA}
@@ -26,6 +29,7 @@ library(cowplot)
 library(caret)
 library(ggpubr)
 library(corrplot)
+library(EnsDb.Hsapiens.v79)
 library(MASS)
 library(Rtsne)
 library(umap)
@@ -35,6 +39,7 @@ library(ConsensusClusterPlus)
 library(mclust)
 library(aricode)
 library(PANDA)
+library(RColorBrewer)
 ```
 
 
@@ -122,6 +127,7 @@ FeaturePlot(object = cellLine.atac, reduction = "PanDAumap", features = c('DC_1'
 
 ```{r}
 # Check correlation among extracted components
+refData <- PanDAModel[["PanDAComponents"]][["rnaComponents"]]
 M = cor(refData[,c(1:10)])
 
 # corrplot(M)
@@ -133,7 +139,7 @@ corrplot.mixed(M)
 refComponents <- c("DC_1","DC_2")
 nfea <- 30
 loadingsRNA <- as.data.frame(cellLine.rna@reductions[["PanDA"]]@feature.loadings[,refComponents])
-rownames(loadingsRNA) <- colnames(reducedRNA)
+rownames(loadingsRNA) <- rownames(rna)
 tempfeaRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
 colnames(tempfeaRNA) <- refComponents
 
@@ -188,14 +194,16 @@ ggdotchart(ffeaRNA, x = "renamedGenes", y = "weights",
 
 ```{r}
 # plot heatmap with the top genes on component 1
-nredRNA <- reducedRNA[,genes[,component]]
-namesredRNA <- colnames(nredRNA)
+nredRNA <- rna[genes[,component],]
+namesredRNA <- rownames(nredRNA)
 
 geneID2 <- ensembldb::select(EnsDb.Hsapiens.v79, keys= namesredRNA, keytype = "GENEID", columns = c("SYMBOL","GENEID"))
-colnames(nredRNA) <- geneID2$SYMBOL
+rownames(nredRNA) <- geneID2$SYMBOL
 
 # out <- pheatmap(scale(nredRNA), cluster_rows=T, show_rownames=F, cutree_rows = 3, cutree_cols = 2)
-outRNA <- pheatmap(nredRNA, cluster_rows=T, scale="row", show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+outRNA <- pheatmap(t(nredRNA), cluster_rows=T, scale="row", show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+
+# Add row and column annotations
 rnalabel <- cutree(outRNA$tree_row, k=3)[outRNA$tree_row[["order"]]]
 annot_rna <- data.frame(row.names = names(rnalabel),
                         Clusters = as.factor(rnalabel),
@@ -205,30 +213,11 @@ my_colour = list(
   Groundtruth = c(HCT = "#E58601", Hela = "#4E9F50", K562 = "#027B8E"),
   clustering = c("1" = "#CD0BBC", "2" = "#F5C710", "3" = "#28E2E5"))
 
-# use this function to make row or column names bold
-# parameters:
-#   mat: the matrix passed to pheatmap
-#   rc_fun: either rownames or colnames
-#   rc_names: vector of names that should appear in boldface
-make_bold_names <- function(mat, rc_fun, rc_names) {
-  bold_names <- rc_fun(mat)
-  ids <- rc_names %>% match(rc_fun(mat))
-  ids %>%
-    walk(
-      function(i)
-        bold_names[i] <<-
-        bquote(bold(.(rc_fun(mat)[i]))) %>%
-        as.expression()
-    )
-  bold_names
-}
-
-pheatmap(nredRNA, cluster_rows = T, cluster_cols = T,
-         show_rownames = F, 
+pheatmap(t(nredRNA), cluster_rows = T, cluster_cols = T,
+         show_rownames = F, main = "RNA",
          scale = "row", show_colnames = T, 
          cutree_rows = 3, annotation_row = annot_rna,
-         annotation_colors = my_colour,
-         labels_col = make_bold_names(nredRNA, colnames, colnames(nredRNA)))
+         annotation_colors = my_colour)
 
 ```
 
