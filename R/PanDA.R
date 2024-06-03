@@ -170,7 +170,7 @@ PanDA <- function (data,labels,Dim,meu){
 
   DD = BB - meu*MM
   CC = CC + lambda*diag(nrow(CC));
-  jeig <- geigen(DD, CC, symmetric = TRUE)
+  jeig <- geigen::geigen(DD, CC, symmetric = TRUE)
   ind <- order(-jeig[["values"]])
   eigvector <- jeig[["vectors"]][,ind[c(1:Dim)]]
 
