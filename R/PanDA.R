@@ -37,7 +37,7 @@
 #'
 #' @importFrom geigen geigen
 
-PanDA <- function (data,labels,Dim, meu){
+PanDA <- function (data,labels,Dim,meu){
   if (missing(data)){
     stop("data not provided")
   }
