@@ -46,6 +46,7 @@ library(RColorBrewer)
 
 # Introduction
 
+In this vignette we will demonstrate how to run multi-omics discriminant analysis on single-cell datasets using the PanDA framework
 
 # Load data
 
@@ -60,6 +61,9 @@ metaData <- data_CancerCellLine[["metadata"]]
 ```
 
 # Create SingleCellExperiment object
+
+We can first initialize a Seurat object with the single-cell RNA-seq data and then apply the PanDA integration method to harmonize and enhance the analysis, enabling more robust and comprehensive insights into the dataset.
+
 ```{r, message=FALSE, warning=FALSE}
 cellLine.rna <- CreateSeuratObject(counts = rna,
                                 project = "cellLine",
@@ -71,9 +75,9 @@ cellLine.atac <- CreateSeuratObject(counts = atac,
                                  assay = "ATAC",
                                  meta.data = metaData)
 ```
+# Extract discriminant components
 
-
-
+We next extracted discriminant latent components using PANDA. We assessed PanDA in terms of discriminant latent component recovery/estimation, in other words, how well it determine a common latent space that best captures the discriminant structure in the data.
 
 ```{r, message=FALSE, warning=FALSE}
 data <- list(rna = as.matrix(rna), atac = as.matrix(atac))
@@ -92,9 +96,6 @@ PanDARNA <- CreateDimReducObject(
 
 cellLine.rna@reductions[["PanDA"]] <- PanDARNA
 
-cellLine.rna <- RunUMAP(cellLine.rna, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
-cellLine.rna <- RunTSNE(cellLine.rna, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAtsne", reduction.key = "PandaTSNE_")
-
 PanDAATAC <- CreateDimReducObject(
   embeddings = PanDAModel[["PanDAComponents"]][["atacComponents"]],
   loadings = PanDAModel[["projMatrices"]][["Watac"]],
@@ -104,17 +105,21 @@ PanDAATAC <- CreateDimReducObject(
 )
 
 cellLine.atac@reductions[["PanDA"]] <- PanDAATAC
-
-cellLine.atac <- RunUMAP(cellLine.atac, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
-cellLine.atac <- RunTSNE(cellLine.atac, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAtsne", reduction.key = "PandaTSNE_")
 ```
+# Investigate PanDAs discriminant components
+PANDA-extracted latent components can also be used as inputs to nonlinear manifold learning approaches such as t-distributed stochastic neighbor embedding and UMAP to inspect variations captured by each component as well as for other downstream analyses. We embedded cells (defined based on the 10 PANDA latent components) into lower dimensional UMAP subspaces.
 
 ```{r}
+cellLine.rna <- RunUMAP(cellLine.rna, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
+cellLine.atac <- RunUMAP(cellLine.atac, dims = 1:100, reduction = "PanDA", reduction.name = "PanDAumap", reduction.key = "PandaUMAP_")
+
 cols <- c("#E58601","#4E9F50","#027B8E")
 p1 <- DimPlot(cellLine.rna, reduction = "PanDAumap", group.by = "orig.ident", label = FALSE, pt.size = 2, cols = cols) + NoLegend() + ggtitle("RNA")
 p2 <- DimPlot(cellLine.atac, reduction = "PanDAumap", group.by = "orig.ident", label = FALSE, pt.size = 2, cols = cols) + ggtitle("ATAC")
 p1 / p2
 ```
+
+We then examined the components variabilities by visualizing the contribution of each component in the HeLa, K562, and HCT cancer cell lines. Both components 1 and 2 explained variation in the three cell lines, capturing differences in these groups. For example, component 1 (for both scRNA-seq and scATAC-seq modalities) assigned negative values, positive values, and values close to zero to the HCT, K562, and HeLa cells, respectively
 
 ```{r}
 FeaturePlot(object = cellLine.rna, reduction = "PanDAumap", features = c('DC_1','DC_2'), pt.size = 2)&
@@ -126,6 +131,8 @@ FeaturePlot(object = cellLine.atac, reduction = "PanDAumap", features = c('DC_1'
   scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
 ```
 
+Examining the extracted PANDA latent components further, we found that these omics-specific components were not heavily correlated, indicating they captured independent information
+
 ```{r}
 # Check correlation among extracted components
 refData <- PanDAModel[["PanDAComponents"]][["rnaComponents"]]
@@ -134,6 +141,8 @@ M = cor(refData[,c(1:10)])
 # corrplot(M)
 corrplot.mixed(M)
 ```
+
+we identified genes and peaks with the greatest enrichment (absolute weight) in individual latent components by examining the PANDA projection matrix. The top 30 genes with the largest absolute weights on component 1 captured differences in expression signatures that distinguished the three cancer cell lines. PANDA identified and assigned larger weights (greater importance) to the most discriminating genes in this dataset.
 
 ```{r}
 # Plot gene loading for PanDA components (RNA)
@@ -179,19 +188,22 @@ ggdotchart(ffeaRNA, x = "renamedGenes", y = "weights",
            palette = cols,
            sorting = "descending",
            add = "segments",
-           add.params = list(color = "#999999", size = 4),
+           add.params = list(color = "#999999", size = 3),
            rotate = TRUE,
-           dot.size = 8,
+           dot.size = 6,
            label = ffeaRNA$sign,
-           font.label = list(face = "bold", color = "white", size = 18, 
+           font.label = list(face = "bold", color = "white", size = 10, 
                              vjust = 0.4), 
-           ggtheme = theme_pubr()
+           ggtheme = theme_pubr(),
+           xlab = "Genes"
 )+
-  font("x.text", size = 18, color = "black", face = "bold.italic")+
-  font("y.text", size = 18, color = "black", face = "bold.italic")+
-  font("xy", size = 18, color = "black", face = "bold.italic")
+  font("x.text", size = 11, color = "black", face = "bold.italic")+
+  font("y.text", size = 11, color = "black", face = "bold.italic")+
+  font("xy", size = 11, color = "black", face = "bold.italic")
 
 ```
+
+Heat map of the clustering analysis using these 30 genes on the first PANDA latent components optimally highlighted clusters corresponding to the three cancer cell lines while depicting the sparsity commonly seen in scRNA-seq and scATAC-seq datasets
 
 ```{r}
 # plot heatmap with the top genes on component 1
@@ -221,6 +233,8 @@ pheatmap(t(nredRNA), cluster_rows = T, cluster_cols = T,
          annotation_colors = my_colour)
 
 ```
+
+These 30 genes collectively yielded ARI and NMI values of 1.00
 
 ```{r}
 rnaclustres <- clustComp(annot_rna$Cluster, factor(annot_rna$Groundtruth))
