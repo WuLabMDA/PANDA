@@ -1,0 +1,333 @@
+---
+title: "PanDA components are robust predictors of clinical outcome"
+author: "Muhammad Aminu"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: yes
+package: PANDA
+vignette: |
+  %\VignetteIndexEntry{Pan-omics Discriminant Analysis with PanDA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = FALSE, 
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+library(corrplot)
+library(kernlab)
+library(IntNMF)
+library(mclust)
+library(aricode)
+library(ConsensusClusterPlus)
+library("survival")
+library("survcomp")
+library(survminer)
+library("forestplot")
+library(reticulate)
+library(aricode)
+library(omicade4)
+library(IntNMF)
+library(r.jive)
+library(tensorBSS)
+library(mixOmics) # import the mixOmics library
+library(umap)
+library(RGCCA)
+library(Seurat)
+library(MOFA2)
+library(ggforce)
+library(PANDA)
+```
+
+
+# Introduction
+
+In this vignette we will demonstrate how to run multi-omics discriminant analysis on single-cell datasets using the PanDA framework
+
+# Load data
+
+```{r}
+data("data_gbmTCGA")
+
+data <- list(mirna = (as.matrix(data_gbmTCGA[["mirna"]])), mrna = (as.matrix(data_gbmTCGA[["mrna"]])), methylation = (as.matrix(data_gbmTCGA[["methylation"]])))
+
+Y <- data_gbmTCGA[["survival"]][["label"]] # use the subtype as the outcome variable
+subtype <- factor(Y)
+
+col <- c("#be0000","#00468BFF")
+```
+
+# Extract discriminant components
+
+We next extracted discriminant latent components using PANDA. 
+
+```{r, message=FALSE, warning=FALSE}
+gnd <- as.numeric(as.factor(Y))
+numComponents <- 20
+
+PanDAModel <- PanDA(data,gnd,numComponents,0.005)
+
+factors_PanDAmRNA <- as.data.frame(PanDAModel[["PanDAComponents"]][["mrnaComponents"]])
+colnames(factors_PanDAmRNA) <- paste(rep("PanDAmRNA",20),c(1:20), sep="_")
+
+factors_PanDAmiRNA <- as.data.frame(PanDAModel[["PanDAComponents"]][["mirnaComponents"]])
+colnames(factors_PanDAmiRNA) <- paste(rep("PanDAmiRNA",20),c(1:20), sep="_")
+
+factors_PanDAmeth <- as.data.frame(PanDAModel[["PanDAComponents"]][["methylationComponents"]])
+colnames(factors_PanDAmeth) <- paste(rep("PanDAmeth",20),c(1:20), sep="_")
+```
+# Investigate PanDAs discriminant components
+PANDA-extracted latent components can also be used as inputs to nonlinear manifold learning approaches such as t-distributed stochastic neighbor embedding and UMAP to inspect variations captured by each component as well as for other downstream analyses. We embedded cells (defined based on the 10 PANDA latent components) into lower dimensional UMAP subspaces.
+
+```{r}
+p1 <- factors_PanDAmRNA %>%
+  ggplot(aes(x = `PanDAmRNA_1`,
+             y = `PanDAmRNA_2`))+
+  scale_color_manual(values=col)+
+  geom_point(aes(color=subtype),size = 4)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))+xlab("PandamRNA_1")+ylab("PandamRNA_2")+xlim(-1, 1)+ylim(-0.05, 0.05)+NoLegend()
+
+p2 <- factors_PanDAmiRNA %>%
+  ggplot(aes(x = `PanDAmiRNA_1`,
+             y = `PanDAmiRNA_2`))+
+  scale_color_manual(values=col)+
+  geom_point(aes(color=subtype),size = 4)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))+xlab("PandamiRNA_1")+ylab("PandamiRNA_2")+xlim(-1, 1)+ylim(-0.05, 0.05)+NoLegend()
+
+p3 <- factors_PanDAmeth %>%
+  ggplot(aes(x = `PanDAmeth_1`,
+             y = `PanDAmeth_2`))+ 
+  scale_color_manual(values=col)+
+  geom_point(aes(color=subtype),size = 4)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))+xlab("Pandameth_1")+ylab("Pandameth_2")+xlim(-1, 1)+ylim(-0.05, 0.05)
+
+p1 + p2 + p3
+```
+
+```{r, echo=TRUE, fig.show='hide'}
+PanDAmRNAclust = ConsensusClusterPlus(
+  t(factors_PanDAmRNA[,c(1:2)]),
+  maxK=3,
+  reps=100,
+  distance="canberra",
+  tmyPal=c("white","#135078"),
+  clusterAlg="hc")
+
+subgroup <- 2
+PanDAmRNAlabel <- unlist(PanDAmRNAclust[[subgroup]]["consensusClass"])
+PanDAmRNAclustres <- clustComp(gnd, PanDAmRNAlabel)
+cat(" ARI =", PanDAmRNAclustres[["ARI"]],"\n", "NMI =", PanDAmRNAclustres[["NMI"]])
+
+PanDAmiRNAclust = ConsensusClusterPlus(
+  t(factors_PanDAmiRNA[,c(1:2)]),
+  maxK=3,
+  reps=100,
+  distance="canberra",
+  tmyPal=c("white","#135078"),
+  clusterAlg="hc")
+
+PanDAmiRNAlabel <- unlist(PanDAmiRNAclust[[subgroup]]["consensusClass"])
+PanDAmiRNAclustres <- clustComp(gnd, PanDAmiRNAlabel)
+cat(" ARI =", PanDAmiRNAclustres[["ARI"]],"\n", "NMI =", PanDAmiRNAclustres[["NMI"]])
+
+PanDAmethclust = ConsensusClusterPlus(
+  t(factors_PanDAmeth[,c(1:2)]),
+  maxK=3,
+  reps=100,
+  distance="canberra",
+  tmyPal=c("white","#135078"),
+  clusterAlg="hc")
+
+PanDAmethlabel <- unlist(PanDAmethclust[[subgroup]]["consensusClass"])
+PanDAmethclustres <- clustComp(gnd, PanDAmethlabel)
+cat(" ARI =", PanDAmethclustres[["ARI"]],"\n", "NMI =", PanDAmethclustres[["NMI"]])
+```
+
+
+```{r}
+PanDAForest <- cbind(factors_PanDAmRNA, surv, PanDAmRNAlabel)
+
+PanDAfit <- coxph(Surv(time/365,event)
+                   ~ PanDAmRNAlabel, data = PanDAForest)
+
+pvalueCI[10,1] <- summary(PanDAfit)$coefficients[5]
+
+CIndex[10,1] <- PanDAfit[["concordance"]][["concordance"]]
+
+for(k in 1:20){
+  if (k == 1){
+    covariates <- colnames(PanDAForest)[1]
+    func <- sapply(covariates,
+                   function(x) as.formula(paste('Surv(time/365,event)~', x)))
+    PanDAfit2 <- lapply( func, function(x){coxph(x, data = PanDAForest)})
+    dCIndex[10,k] <- PanDAfit2[[covariates]][["concordance"]][["concordance"]]
+  }else{
+    covariates <- paste(colnames(PanDAForest)[1:k], collapse="+")
+    func <- sapply(covariates,
+                   function(x) as.formula(paste('Surv(time/365,event)~', x)))
+    PanDAfit2 <- lapply( func, function(x){coxph(x, data = PanDAForest)})
+    dCIndex[10,k] <- PanDAfit2[[covariates]][["concordance"]][["concordance"]]
+  }
+}
+
+PanDAfitgg <- coxph(Surv(time/365,event)
+                     ~ PanDAmRNA_1+PanDAmRNA_2+PanDAmRNA_3+PanDAmRNA_4+PanDAmRNA_5+PanDAmRNA_6+PanDAmRNA_7+PanDAmRNA_8+
+                       PanDAmRNA_9+PanDAmRNA_10,data = PanDAForest)
+
+summary(PanDAfitgg)
+ggforest(PanDAfitgg,main = "GBM (PanDA mRNA components): Hazard Ratio", fontsize = 1)
+```
+
+
+```{r}
+cut <- surv_cutpoint(PanDAForest, variables='PanDAmRNA_1',minprop = 0.5)
+PanDAForest$FactorCluster <- PanDAForest$PanDAmRNA_1 > cut$cutpoint$cutpoint
+fitPanDA <- survfit(Surv(time/365, event) ~ FactorCluster, PanDAForest)
+summary(coxph(Surv(time/365,event)  ~ FactorCluster, data = PanDAForest))
+
+ggsurvplot(fitPanDA, data = PanDAForest,title = "GBM (PanDA first mrna component)",ggtheme=custom_theme(),
+           conf.int = FALSE,
+           pval = TRUE,
+           fun = "pct",
+           risk.table = TRUE,
+           xlab = "Time (Years)",
+           ylab = "Overall Survival (%)",
+           xlim = c(0, 10),
+           risk.table.fontsize =5,
+           size = 2,
+           linetype = "solid",
+           palette = c("#be0000","#00468BFF"),
+           
+           risk.table.col = "strata",
+           #legend = "bottom",
+           legend.title = "",
+           legend.labs = c("High risk  ",
+                           "Low risk  "))
+```
+
+
+
+we identified genes and peaks with the greatest enrichment (absolute weight) in individual latent components by examining the PANDA projection matrix. The top 30 genes with the largest absolute weights on component 1 captured differences in expression signatures that distinguished the three cancer cell lines. PANDA identified and assigned larger weights (greater importance) to the most discriminating genes in this dataset.
+
+```{r}
+# Plot gene loading for PanDA components (RNA)
+refComponents <- c("DC_1","DC_2")
+nfea <- 30
+loadingsRNA <- as.data.frame(cellLine.rna@reductions[["PanDA"]]@feature.loadings[,refComponents])
+rownames(loadingsRNA) <- rownames(rna)
+tempfeaRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(tempfeaRNA) <- refComponents
+
+genes <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(genes) <- refComponents
+
+signRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(signRNA) <- refComponents
+
+for (i in 1:length(refComponents)) {
+  ind <- sort(abs(loadingsRNA[,i]), decreasing = TRUE, index.return=TRUE)$ix
+  tempfeaRNA[,i] <- loadingsRNA[ind[c(1:nfea)],i]
+  genes[,i] <- rownames(loadingsRNA)[ind[c(1:nfea)]]
+  for (j in 1:nrow(tempfeaRNA)){
+    if(tempfeaRNA[j,i] > 0){
+      signRNA[j,i] <- "+"
+    }
+    else{
+      signRNA[j,i] <- "-"
+    }
+  }
+}
+
+# Plot the genes with top weights on component 1
+ffeaRNA <- data.frame(matrix(ncol = 3, nrow = nfea))
+component <- "DC_1"
+ffeaRNA[,1] <- genes[,component]
+ffeaRNA[,2] <- abs(tempfeaRNA[,component])
+ffeaRNA[,3] <- signRNA[,component]
+colnames(ffeaRNA) <- c("genes","weights","sign")
+
+geneIDS <- ensembldb::select(EnsDb.Hsapiens.v79, keys= ffeaRNA[,1], keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+ffeaRNA$renamedGenes <- geneIDS$SYMBOL
+
+ggdotchart(ffeaRNA, x = "renamedGenes", y = "weights",
+           palette = cols,
+           sorting = "descending",
+           add = "segments",
+           add.params = list(color = "#999999", size = 3),
+           rotate = TRUE,
+           dot.size = 6,
+           label = ffeaRNA$sign,
+           font.label = list(face = "bold", color = "white", size = 10, 
+                             vjust = 0.4), 
+           ggtheme = theme_pubr(),
+           xlab = "Genes"
+)+
+  font("x.text", size = 11, color = "black", face = "bold.italic")+
+  font("y.text", size = 11, color = "black", face = "bold.italic")+
+  font("xy", size = 11, color = "black", face = "bold.italic")
+
+```
+
+Heat map of the clustering analysis using these 30 genes on the first PANDA latent components optimally highlighted clusters corresponding to the three cancer cell lines while depicting the sparsity commonly seen in scRNA-seq and scATAC-seq datasets
+
+```{r}
+# plot heatmap with the top genes on component 1
+nredRNA <- rna[genes[,component],]
+namesredRNA <- rownames(nredRNA)
+
+geneID2 <- ensembldb::select(EnsDb.Hsapiens.v79, keys= namesredRNA, keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+rownames(nredRNA) <- geneID2$SYMBOL
+
+# out <- pheatmap(scale(nredRNA), cluster_rows=T, show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+outRNA <- pheatmap(t(nredRNA), cluster_rows=T, scale="row", show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+
+# Add row and column annotations
+rnalabel <- cutree(outRNA$tree_row, k=3)[outRNA$tree_row[["order"]]]
+annot_rna <- data.frame(row.names = names(rnalabel),
+                        Clusters = as.factor(rnalabel),
+                        Groundtruth = as.factor(metaData[outRNA[["tree_row"]][["order"]],"celltype"]))
+
+my_colour = list(
+  Groundtruth = c(HCT = "#E58601", Hela = "#4E9F50", K562 = "#027B8E"),
+  clustering = c("1" = "#CD0BBC", "2" = "#F5C710", "3" = "#28E2E5"))
+
+pheatmap(t(nredRNA), cluster_rows = T, cluster_cols = T,
+         show_rownames = F, main = "RNA",
+         scale = "row", show_colnames = T, 
+         cutree_rows = 3, annotation_row = annot_rna,
+         annotation_colors = my_colour)
+
+```
+
+These 30 genes collectively yielded ARI and NMI values of 1.00
+
+```{r}
+rnaclustres <- clustComp(annot_rna$Cluster, factor(annot_rna$Groundtruth))
+cat(" ARI =", rnaclustres[["ARI"]],"\n", "NMI =", rnaclustres[["NMI"]])
+```
+
+
+
+<details>
+  <summary>**Session Info**</summary>
+  
+```{r}
+sessionInfo()
+```
+
+</details>

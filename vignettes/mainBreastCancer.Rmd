@@ -1,0 +1,402 @@
+---
+title: "PanDA identifies important markers related to breast cancer"
+author: "Muhammad Aminu"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: yes
+package: PANDA
+vignette: |
+  %\VignetteIndexEntry{Pan-omics Discriminant Analysis with PanDA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = FALSE, 
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+library(corrplot)
+library(kernlab)
+library(IntNMF)
+library(mclust)
+library(aricode)
+library(ggforce)
+library(magrittr)
+library(Seurat)
+library(ggpubr)
+library(pheatmap)
+library(ConsensusClusterPlus)
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+library(PANDA)
+library(mixOmics)
+library(plotly)
+```
+
+# Introduction
+
+In this vignette we will demonstrate how to run multi-omics discriminant analysis on single-cell datasets using the PanDA framework
+
+# Load data
+
+First, we load the datasets
+
+```{r}
+data(breast.TCGA) # extract the TCGA data
+
+data = list()
+data$mirna <- t(breast.TCGA$data.train$mirna)
+data$mrna <- t(breast.TCGA$data.train$mrna)
+data$protein <- t(breast.TCGA$data.train$protein)
+
+Y <- breast.TCGA$data.train$subtype # use the subtype as the outcome variable
+subtype <- factor(Y)
+```
+
+# Extract discriminant components
+
+We used the training dataset to learn the PANDA transformation matrix, which we then used to determine lower dimensional representations of both the training and testing sets.
+
+```{r, message=FALSE, warning=FALSE}
+gnd <- as.numeric(Y)
+numComponents <- 10
+
+PanDAModel <- PanDA(data,gnd,numComponents,0.2)
+```
+
+# Investigate PanDAs discriminant components
+
+PANDA obtained discriminant latent representations with similar data structures, indicating shared evidence across the three types of omics data.
+
+```{r}
+mirnaComp <- as.data.frame(PanDAModel[["PanDAComponents"]][["mirnaComponents"]])
+mrnaComp <- as.data.frame(PanDAModel[["PanDAComponents"]][["mrnaComponents"]])
+proteinComp <- as.data.frame(PanDAModel[["PanDAComponents"]][["proteinComponents"]])
+
+cols = c('#BF382A', '#0C4B8E', "#fc8d59")
+fig1 <- plot_ly(mrnaComp, x = ~`DC 1`, y = ~`DC 2`, z = ~`DC 3`, color = ~subtype, colors = cols)
+fig1 <- fig1 %>% add_markers()
+fig1 <- fig1 %>% layout(scene = list(xaxis = list(title = 'DC 1'),
+                                     yaxis = list(title = 'DC 2'),
+                                     zaxis = list(title = 'DC 3')))
+fig1
+
+fig2 <- plot_ly(mirnaComp, x = ~`DC 1`, y = ~`DC 2`, z = ~`DC 3`, color = ~subtype, colors = cols)
+fig2 <- fig2 %>% add_markers()
+fig2 <- fig2 %>% layout(scene = list(xaxis = list(title = 'DC 1'),
+                                     yaxis = list(title = 'DC 2'),
+                                     zaxis = list(title = 'DC 3')))
+fig2
+
+fig3 <- plot_ly(proteinComp, x = ~`DC 1`, y = ~`DC 2`, z = ~`DC 3`, color = ~subtype, colors = cols)
+fig3 <- fig3 %>% add_markers()
+fig3 <- fig3 %>% layout(scene = list(xaxis = list(title = 'DC 1'),
+                                     yaxis = list(title = 'DC 2'),
+                                     zaxis = list(title = 'DC 3')))
+fig3
+
+```
+
+# Evaluate discrimination performance on training sets
+
+Quantitatively, this observation is supported by PANDA higher cluster purity values of 1 for the training mRNA, miRNA, and protein latent representations and cluster purity values of 0.93 and 0.81 for the test mRNA and miRNA latent representations.
+
+```{r, echo=TRUE, fig.show='hide'}
+subgroup <- 3
+mRNAres = ConsensusClusterPlus(
+  t(as.matrix(mrnaComp[,c(1,2)])),
+  maxK=5,
+  reps=100,
+  distance="euclidean",
+  tmyPal=c("white","seagreen"),
+  clusterAlg="hc",
+  plot = FALSE)
+
+mRNAlabel <-  unlist(mRNAres[[subgroup]]["consensusClass"])
+ClusterPurity(gnd, mRNAlabel)
+
+
+miRNAres = ConsensusClusterPlus(
+  t(as.matrix(mirnaComp[,c(1,2)])),
+  maxK=5,
+  reps=100,
+  distance="euclidean",
+  tmyPal=c("white","seagreen"),
+  clusterAlg="hc",
+  plot = FALSE)
+
+miRNAlabel <-  unlist(miRNAres[[subgroup]]["consensusClass"])
+ClusterPurity(gnd, miRNAlabel)
+
+proteinres = ConsensusClusterPlus(
+  t(as.matrix(proteinComp[,c(1,2)])),
+  maxK=5,
+  reps=100,
+  distance="euclidean",
+  tmyPal=c("white","seagreen"),
+  clusterAlg="hc",
+  plot = FALSE)
+
+proteinlabel <-  unlist(proteinres[[subgroup]]["consensusClass"])
+ClusterPurity(gnd, proteinlabel)
+```
+
+Inspection of the 3D latent representations for the test sets demonstrated that PANDA effectively captures the discriminant and correspondence structures in the different modalities
+
+```{r}
+# Test model performance
+testdata = list()
+testdata$mirna = t(breast.TCGA$data.test$mirna)
+testdata$mrna = t(breast.TCGA$data.test$mrna)
+testlabel <- breast.TCGA[["data.test"]][["subtype"]]
+testgnd = as.numeric(testlabel)
+
+mirnatestComponent <- as.data.frame(t(testdata$mirna) %*% PanDAModel[["projMatrices"]][["Wmirna"]])
+mirnatestComponent$subtype <- testgnd
+mrnatestComponent <- as.data.frame(t(testdata$mrna) %*% PanDAModel[["projMatrices"]][["Wmrna"]])
+mrnatestComponent$subtype <- testgnd
+
+fig4 <- plot_ly(mirnatestComponent, x = ~`V1`, y = ~`V2`, z = ~`V3`, color = ~subtype, colors = cols)
+fig4 <- fig4 %>% add_markers()
+fig4 <- fig4 %>% layout(scene = list(xaxis = list(title = 'DC 1'),
+                                   yaxis = list(title = 'DC 2'),
+                                   zaxis = list(title = 'DC 3')))
+fig4
+
+fig5 <- plot_ly(mrnatestComponent, x = ~`V1`, y = ~`V2`, z = ~`V3`, color = ~subtype, colors = cols)
+fig5 <- fig5 %>% add_markers()
+fig5 <- fig5 %>% layout(scene = list(xaxis = list(title = 'DC 1'),
+                                     yaxis = list(title = 'DC 2'),
+                                     zaxis = list(title = 'DC 3')))
+fig5
+```
+
+# Evaluate discrimination performance on test sets
+
+Quantitatively, the above results are supported by PANDA higher cluster purity values of 0.93 and 0.81 for the test mRNA and miRNA latent representations.
+
+```{r, echo=TRUE, fig.show='hide'}
+tmRNAres = ConsensusClusterPlus(
+  t(as.matrix(mrnatestComponent[,c(1,2)])),
+  maxK=5,
+  reps=100,
+  distance="euclidean",
+  tmyPal=c("white","seagreen"),
+  clusterAlg="hc",
+  plot = FALSE)
+
+tmRNAlabel <-  unlist(tmRNAres[[subgroup]]["consensusClass"])
+ClusterPurity(testgnd, tmRNAlabel)
+
+tmiRNAres = ConsensusClusterPlus(
+  t(as.matrix(mirnatestComponent[,c(1,2)])),
+  maxK=5,
+  reps=100,
+  distance="euclidean",
+  tmyPal=c("white","seagreen"),
+  clusterAlg="hc",
+  plot = FALSE)
+
+tmiRNAlabel <-  unlist(tmiRNAres[[subgroup]]["consensusClass"])
+ClusterPurity(testgnd, tmiRNAlabel)
+```
+
+Examining the extracted PANDA train latent components further, we found that these omics-specific components were not heavily correlated, indicating they captured independent information
+
+```{r}
+# Check correlation among extracted components
+M = cor(mrnaComp[,1:10])
+#corrplot(M)
+corrplot.mixed(M)
+```
+
+To examine whether PANDA latent components capture information from all of the different omics (i.e., maximized cross-omics correlation), we computed the correlation among the first components of the three training omics datasets. We observed that PANDA-extracted latent components are highly correlated with each other (indicated by the large correlation coefficient values at the bottom of the Fig.), highlighting the ability of PANDA to model the correspondence presenting in the different omics. Also, these latent components maximally separate the different tumor subtypes, further indicating the discriminative power of the components.
+
+```{r}
+# check correlation among extracted components of different omics
+combComponents <- cbind(mirnaComp[,1],mrnaComp[,1],proteinComp[,1])
+names <- c("miRNA", "mRNA", "Protein")
+colnames (combComponents) <- names
+
+# Correlation panel
+panel.cor <- function(x, y){
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r <- round(cor(x, y), digits=2)
+  txt <- paste0("R = ", r)
+  cex.cor <- 0.8/strwidth(txt)
+  text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+# Customize upper panel
+upper.panel<-function(x, y){
+  points(x,y, pch = 19, col = cols[subtype], cex = 1.5)
+}
+
+# Create the plots
+pairs(combComponents, 
+      lower.panel = panel.cor,
+      upper.panel = upper.panel)
+```
+
+To gain further insight into the PANDA-extracted latent components and identify important biomarkers related to breast cancer, we investigated the genes with the largest absolute weights on the extracted latent components. PANDA identified and assigned larger weights to the most discriminative genes that best characterize (and/or significantly associate with) the different breast tumor subtypes. For example, latent component 1 explained variations in all tumor subtypes, capturing gene expression signatures strongly associated with the different tumor subtypes
+
+```{r}
+# Plot gene loading for PanDA components (RNA)
+refComponents <- c(1:3)
+nfea <- 30
+loadingsmRNA <- as.data.frame(PanDAModel[["projMatrices"]][["Wmrna"]][,refComponents])
+rownames(loadingsmRNA) <- rownames(data[["mrna"]])
+tempfeamRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(tempfeamRNA) <- paste("DC",refComponents, sep = "_")
+
+genes <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(genes) <- paste("DC",refComponents, sep = "_")
+
+signmRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+colnames(signmRNA) <- paste("DC",refComponents, sep = "_")
+
+for (i in 1:length(refComponents)) {
+  ind <- sort(abs(loadingsmRNA[,i]), decreasing = TRUE, index.return=TRUE)$ix
+  tempfeamRNA[,i] <- loadingsmRNA[ind[c(1:nfea)],i]
+  genes[,i] <- rownames(loadingsmRNA)[ind[c(1:nfea)]]
+  for (j in 1:nrow(tempfeamRNA)){
+    if(tempfeamRNA[j,i] > 0){
+      signmRNA[j,i] <- "+"
+    }
+    else{
+      signmRNA[j,i] <- "-"
+    }
+  }
+}
+
+# Plot the genes with top weights on component 1
+contrib <- "max"
+X2 <- (breast.TCGA$data.train$mrna)
+method.group <- list()
+which.contrib = data.frame(matrix(FALSE, ncol = nlevels(Y) + 2, nrow = ncol(X2),
+                                  dimnames = list(colnames(X2), c(paste0("Contrib.", levels(Y)), "Contrib", "GroupContrib"))))
+cindx <- data.frame(matrix(NA, ncol = 1, nrow = ncol(X2), dimnames = list(colnames(X2), "clusters")))
+for(k in 1:ncol(X2)){
+  method.group[[k]] = tapply(X2[, k], gnd, mean, na.rm=TRUE) #method is either mean or median
+  # determine which group has the highest mean/median
+  cindx[k,] <- which.max(method.group[[k]])
+}
+cindx[cindx==1] <- "Basal"
+cindx[cindx==2] <- "Her2"
+cindx[cindx==3] <- "LumA"
+
+ffeamRNA <- data.frame(matrix(ncol = length(refComponents), nrow = nfea))
+component <- "DC_1"
+ffeamRNA[,1] <- genes[,component]
+ffeamRNA[,2] <- abs(tempfeamRNA[,component])
+ffeamRNA[,3] <- signmRNA[,component]
+ffeamRNA[,4] <- cindx[genes[,component],]
+colnames(ffeamRNA) <- c("genes","weights","sign", "clusters")
+
+ggdotchart(ffeamRNA, x = "genes", y = "weights",
+           color = "clusters",
+           palette = cols,
+           sorting = "descending",
+           add = "segments",
+           add.params = list(color = "#999999", size = 3),
+           rotate = TRUE,
+           dot.size = 6,
+           label = ffeamRNA$sign,
+           font.label = list(face = "bold", color = "black", size = 12, 
+                             vjust = 0.4), 
+           ggtheme = theme_pubr()
+)+
+  font("x.text", size = 10, color = "black", face = "bold.italic")+
+  font("y.text", size = 10, color = "black", face = "bold.italic")+
+  font("xy", size = 10, color = "black", face = "bold.italic")
+```
+
+A clustering analysis based on only the 30 genes with the largest weights on latent component 1 demonstrated good differential expression patterns, highlighting clusters corresponding to the three breast tumor subtypes
+
+```{r}
+# plot heatmap with the top genes on component 1
+nredmRNA <- X2[,genes[,component]]
+# out <- pheatmap(scale(nredRNA), cluster_rows=T, show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+outmRNA <- pheatmap(nredmRNA, cluster_rows=T, scale="row", show_rownames=F, cutree_rows = 3, cutree_cols = 2)
+mrnalabel <- cutree(outmRNA$tree_row, k=3)[outmRNA$tree_row[["order"]]]
+annot_mrna <- data.frame(row.names = names(mrnalabel),
+                        Clusters = as.factor(mrnalabel),
+                        Groundtruth = Y[outmRNA[["tree_row"]][["order"]]])
+
+my_colour = list(
+  Groundtruth = c(Basal = "#BF382A", Her2 = "#0C4B8E", LumA = "#fc8d59"),
+  clustering = c("1" = "#CD0BBC", "2" = "#F5C710", "3" = "#28E2E5"))
+
+pheatmap(nredmRNA, cluster_rows = T, cluster_cols = T,
+         show_rownames = F,
+         scale = "row", show_colnames = T,
+         cutree_rows = 3, annotation_row = annot_mrna,
+         annotation_colors = my_colour)
+```
+
+To assess the robustness of the PANDA latent components for classification problems, we concatenated the first 10 latent components for the training mRNA and miRNA omics datasets and used them to train a decision tree (XGBoost) classifier.
+
+```{r}
+# Quantitative evaluation
+# Classification using xgboost
+library("xgboost")  # the main algorithm
+library("caret")    # for the confusionmatrix() function (also needs e1071 package)
+
+
+numberOfClasses <- length(unique(gnd))
+xgb_params <- list("objective" = "multi:softprob",
+                   "eval_metric" = "mlogloss",
+                   "num_class" = numberOfClasses)
+nround    <- 50 # number of XGBoost rounds
+
+train_data   <- as.matrix(cbind(mrnaComp,mirnaComp))
+train_label  <- gnd
+train_label[train_label==3] = 0
+train_matrix <- xgb.DMatrix(data = train_data, label = train_label)
+
+test_data  <- as.matrix(cbind(mrnatestComponent[,1:ncol(mrnatestComponent)-1],mirnatestComponent[,1:ncol(mirnatestComponent)-1]))
+colnames(test_data) <- colnames(train_data)
+test_label <- testgnd
+test_label[test_label==3] = 0
+test_matrix <- xgb.DMatrix(data = test_data, label = test_label)
+
+bst_model <- xgb.train(params = xgb_params,
+                       data = train_matrix,
+                       nrounds = nround)
+```
+
+We then used the corresponding concatenated latent components for the testing mRNA and miRNA datasets to predict the tumor subtypes for the test samples. For cases with more than two modalities of data, a classifier can be built separately using the latent representations obtained for each modality, and the majority voting approach can be used to determine the final classification results for the test samples. In terms of classification accuracy, PANDA resulted in a classification accuracy rate of 87%
+
+```{r}
+# Predict hold-out test set
+test_pred <- predict(bst_model, newdata = test_matrix)
+test_prediction <- matrix(test_pred, nrow = numberOfClasses,
+                          ncol=length(test_pred)/numberOfClasses) %>%
+  t() %>%
+  data.frame() %>%
+  mutate(label = test_label + 1,
+         max_prob = max.col(., "last"))
+# confusion matrix of test set
+confusionMatrix(factor(test_prediction$max_prob),
+                factor(test_prediction$label),
+                mode = "everything")
+```
+
+<details>
+
+<summary>**Session Info**</summary>
+
+```{r}
+sessionInfo()
+```
+
+</details>

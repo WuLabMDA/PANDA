@@ -50,7 +50,6 @@ In this vignette we will demonstrate how to run multi-omics discriminant analysi
 
 # Load data
 
-For this demo we will use a synthetic dataset simulating a scRNA-seq and scATAC-seq experimentts, generated using [MOSim](https://https://github.com/ConesaLab/MOSim).
 
 ```{r}
 data("data_CancerCellLine")
